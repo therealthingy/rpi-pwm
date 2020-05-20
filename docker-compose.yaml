@@ -1,0 +1,28 @@
+version: '3.7'
+
+services:
+  rpi-pwm:
+    container_name: rpi-pwm
+    restart: unless-stopped
+
+    build:
+      context: .
+    image: rpi-pwm
+
+    network_mode: "none"
+
+
+   # Reference: https://stackoverflow.com/a/48234752
+    devices:
+      - /dev/gpiomem
+      - /dev/vchiq
+
+    volumes:
+      - /sys:/sys
+
+    env_file:
+      - .env
+
+    labels:
+     # Watchtower
+      - "com.centurylinklabs.watchtower.enable=false"
