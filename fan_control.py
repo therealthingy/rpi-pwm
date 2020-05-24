@@ -3,27 +3,33 @@ from time import sleep
 import os
 import sys
 
+from datetime import datetime
+
+
 
 # 'Constants'
+LOGGING_ENABLED = True if os.getenv('LOGGING_ENABLED') == 'True' else False
+
 GPIO_PWM_PIN = int(os.getenv('GPIO_PWM_PIN') or 12)
 INVERTED_PWM_SIGNAL = True if os.getenv('INVERTED_PWM_SIGNAL') == 'True' else False
 
 CPU_TEMP_THRESHOLD_DEGREES = float(os.getenv('CPU_TEMP_THRESHOLD_DEGREES') or 54)
 UPDATE_INTERVAL_SEC = float(os.getenv('UPDATE_INTERVAL_SEC') or 1.5)
-COOLDOWN_FACTOR = 5  # How long the fan should continue spinning before slowing down (= (COOLDOWN_FACTOR +1) x UPDATE_INTERVAL_SEC)
+COOLDOWN_FACTOR = 5  # How long the fan should continue spinning before slowing down (= COOLDOWN_FACTOR x UPDATE_INTERVAL_SEC)
 
-MIN_DC = float(os.getenv('MIN_DC') or 35)
-MAX_DC = float(os.getenv('MAX_DC') or 95)
+INIT_DC = 0          # WHEN STARTING APP: FAN OFF
 DC_STEP = 5
+MIN_DC = float(os.getenv('MIN_DC') or 0)
+MAX_DC = float(os.getenv('MAX_DC') or 100)
 
 
 
 # Global variables
 # ! Invert only on output and comparison w/ static values !
-def invertDC(dutycycle):
-    return dutycycle if INVERTED_PWM_SIGNAL is False else 100 - dutycycle
+def invertDC(dc):
+    return dc if INVERTED_PWM_SIGNAL is False else 100 - dc
 
-dc = invertDC(0)
+calc_dc = invertDC(INIT_DC)
 
 
 
@@ -35,23 +41,23 @@ def initPWM(pwm_pin):
     return GPIO.PWM(pwm_pin, 50)
 
 
-def pwmGetDC():
-    return dc
+def getPwmCalcDC():
+    return calc_dc
 
-def newPwmSetDc(pwm):
-    def pwmSetDC(next_dc):
-        global dc
-        dc = next_dc
+def newSetPwmCalcDC(pwm):
+    def setPwmCalcDC(next_calc_dc):
+        global calc_dc
+        calc_dc = next_calc_dc
 
-        applied_dc = dc
+        applied_dc = calc_dc
         if invertDC(applied_dc) >= MAX_DC:		    		      	      # MAX_DC
             applied_dc = invertDC(MAX_DC)
         elif (invertDC(applied_dc) != 0 and invertDC(applied_dc) <= MIN_DC): 	      # MIN_DC
             applied_dc = invertDC(MIN_DC)
 
-        # print("Current global dc: %d, applied dc: %d" % (invertDC(dc), invertDC(applied_dc)))
         pwm.ChangeDutyCycle(applied_dc)
-    return pwmSetDC
+        return [calc_dc, applied_dc]
+    return setPwmCalcDC
 
 
 # $$$ Calc methods: required due to inversion $$$
@@ -67,42 +73,44 @@ def calcDecDC(current_dc):
 
 
 
-def getCPUtemp():
+def getCPUTemp():
     res = os.popen('vcgencmd measure_temp').readline()
     return float((res.replace("temp=","").replace("'C\n","")))
 
 
 
-def logToConsole(temp, cycle):
-    print('Current temp: %f ℃, estimated fan dutycycle: %f' % (temp, invertDC(cycle)))
+def logToConsole(temp, calc_dc, applied_dc):
+    print('%s --- Current temp: %f ℃, calc. fan dutycycle: %f, applied dutycycle: %f' % (datetime.now().astimezone().isoformat(timespec='seconds'), temp, invertDC(calc_dc), invertDC(applied_dc)))
 
 
 
 
 # --- Main program
 # - Init PWM
-print(f"{GPIO_PWM_PIN=} {INVERTED_PWM_SIGNAL=} {MIN_DC=} {MAX_DC=} {CPU_TEMP_THRESHOLD_DEGREES=} {UPDATE_INTERVAL_SEC=}")
+print(f"{LOGGING_ENABLED=} {GPIO_PWM_PIN=} {INVERTED_PWM_SIGNAL=} {INIT_DC=} {DC_STEP=} {MIN_DC=} {MAX_DC=} {CPU_TEMP_THRESHOLD_DEGREES=} {UPDATE_INTERVAL_SEC=}")
 
 try:
     pwm = initPWM(GPIO_PWM_PIN)
-    pwm.start(pwmGetDC())
+    pwm.start(getPwmCalcDC())
 
-    pmwSetDC = newPwmSetDc(pwm)
-    cool_down = 0
+    setPwmCalcDC = newSetPwmCalcDC(pwm)
+    cool_down, cpu_temp = 0, 0
+    calc_dc = applied_dc = getPwmCalcDC()
 
     while True:
-        cpu_temp = getCPUtemp()
-        tmp_dc = pwmGetDC()
-        logToConsole(cpu_temp, tmp_dc)
+        cpu_temp = getCPUTemp()
 
         if (cpu_temp > CPU_TEMP_THRESHOLD_DEGREES):         # fanUp
-            pmwSetDC(calcIncDC(tmp_dc))
-            cool_down = COOLDOWN_FACTOR
+            calc_dc, applied_dc = setPwmCalcDC(calcIncDC(calc_dc))
+            cool_down = COOLDOWN_FACTOR -1
         elif (cpu_temp < CPU_TEMP_THRESHOLD_DEGREES):       # fanDown
             if cool_down == 0:
-                pmwSetDC(calcDecDC(tmp_dc))
+                calc_dc, applied_dc = setPwmCalcDC(calcDecDC(calc_dc))
             else:
                 cool_down -= 1
+
+        if LOGGING_ENABLED:
+            logToConsole(cpu_temp, calc_dc, applied_dc)
 
         sleep(UPDATE_INTERVAL_SEC)
 
