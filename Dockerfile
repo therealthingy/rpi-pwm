@@ -34,7 +34,7 @@ RUN pip install --no-cache-dir rpi.gpio
 
 # - Copy Python script
 WORKDIR /usr/local/bin
-COPY fan_control.py .
+COPY src/fan_control.py .
 
 
 # - Run python script ('-u' -> unbuffered output => output both stderr & stdout during runtime)

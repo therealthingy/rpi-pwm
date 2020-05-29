@@ -50,9 +50,9 @@ def newSetPwmCalcDC(pwm):
         calc_dc = next_calc_dc
 
         applied_dc = calc_dc
-        if invertDC(applied_dc) >= MAX_DC:		    		      	      # MAX_DC
+        if invertDC(applied_dc) >= MAX_DC:                                # MAX_DC
             applied_dc = invertDC(MAX_DC)
-        elif (invertDC(applied_dc) != 0 and invertDC(applied_dc) <= MIN_DC): 	      # MIN_DC
+        elif (invertDC(applied_dc) != 0 and invertDC(applied_dc) <= MIN_DC):          # MIN_DC
             applied_dc = invertDC(MIN_DC)
 
         pwm.ChangeDutyCycle(applied_dc)
@@ -87,7 +87,9 @@ def logToConsole(temp, calc_dc, applied_dc):
 
 # --- Main program
 # - Init PWM
+print("Running as user '%s' on '%s'" %(os.path.split(os.path.expanduser('~'))[-1], os.uname()[1]))
 print(f"{LOGGING_ENABLED=} {GPIO_PWM_PIN=} {INVERTED_PWM_SIGNAL=} {INIT_DC=} {DC_STEP=} {MIN_DC=} {MAX_DC=} {CPU_TEMP_THRESHOLD_DEGREES=} {UPDATE_INTERVAL_SEC=}")
+print("\n")
 
 try:
     pwm = initPWM(GPIO_PWM_PIN)
