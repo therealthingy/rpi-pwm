@@ -1,0 +1,249 @@
+= RPi Fan Control: (RPiFC)
+:author: Gerrit Klein
+:lang: en
+:icons: font
+:imagesdir: assets/images
+:source-highlighter: highlightjs
+:revealjsdir: https://cdnjs.cloudflare.com/ajax/libs/reveal.js/3.9.2
+:revealjs_theme: simple
+:revealjs_controls: false
+:revealjs_progress: true
+:revealjs_showSlideNumber: all
+:revealjs_slideNumber: c/t
+
+
+== Motivation
+=== Situation
+* Existing *fan control software* for headless RPi's
+** Controls fan duty cycle based on CPU temp
+
+// image:pi-fan-circuit.png["Pi + Fan circuit diagram", 35%, 35%]
+image:pi-fan.jpg["Pi + Fan installed", 35%, 35%]
+
+
+
+=== Current limitations
+** *Cumbersome configuration*
+*** Currently: `ssh` -> change env-vars -> restart app
+** *No direct access* to logs / stats
+*** Currently: Only via `ssh` / Portainer
+
+=== Solution: Web API
+
+
+== Requirements Specification
+. *Access system stats* / debugging info
+** E.g., CPU utilization, CPU temp. / Device info, Logs, current settings, etc.
+. Quickly *change configuration*
+** E.g., Logging enabled, Fan settings / thresholds
+. Authentication
+. Deactivate API
+
+== UI Mockup
+image:rpifc-mockup.png["UI mockup", 75%, 75%]
+
+
+== Use Case Diagram
+[plantuml, generated-diagrams/diagram-rpifc_usecase, png]
+-----
+@startuml
+left to right direction
+actor "Authenticated User" as g
+package RPiFC {
+  usecase "Retrieve system status" as UC1
+  usecase "Retrieve system infos" as UC2
+  usecase "Retrieve debugging data" as UC3
+  usecase "Change configuration" as UC4
+}
+g --> UC1
+g --> UC2
+g --> UC3
+g --> UC4
+@enduml
+-----
+
+== Sequence diagrams
+=== Add new fan curve
+[plantuml, generated-diagrams/diagram-rpifc_seq_add_fan_curve, png]
+-----
+@startuml
+Frontend -> Backend: HTTP: POST /fanCurves
+
+Backend -> Backend: validateAuth(user)
+alt auth_success
+  Backend -> Backend: log(EVENT_ADD_FAN_CURVE, fanCurveName, fanCurveSeries)
+  Backend -> Backend: addFanCurve(fanCurveName, fanCurveSeries)
+
+  Frontend <-- Backend: HTTP 201 Created
+
+  Frontend -> Frontend: updateFanCurveChart(fanSeries)
+  Frontend -> Frontend: showSuccessMsg(msg)
+else auth_fail
+  Frontend <-- Backend: HTTP 401 Unauthorized
+  Frontend -> Frontend: showAuthScreen()
+end
+@enduml
+-----
+
+=== Change existing fan curve
+[plantuml, generated-diagrams/diagram-rpifc_seq_change_fan_curve, png]
+-----
+@startuml
+scale 530 height
+Frontend -> Backend: HTTP: PUT /fanCurves/<name>
+
+Backend -> Backend: validateAuth(user)
+alt auth_success
+  Backend -> Backend: log(EVENT_CHANGE_FAN_CURVE, fanCurveName, fanCurveSeries)
+  Backend -> Backend: getFanCurve(fanCurveName)
+  alt found
+    Backend -> Backend: foundFanCurve.setCurveSeries(fanCurveName, fanCurveSeries)
+
+    Frontend <-- Backend: HTTP 200 OK
+
+    Frontend -> Frontend: updateFanCurveChart(fanSeries)
+    Frontend -> Frontend: showSuccessMsg(msg)
+  else not_found
+    Frontend <-- Backend: HTTP 404
+    Frontend -> Frontend: showFailureMsg(msg)
+  end
+else auth_fail
+  Frontend <-- Backend: HTTP 401 Unauthorized
+  Frontend -> Frontend: showAuthScreen()
+end
+@enduml
+-----
+
+=== Update Web-UI (e.g., Log)
+[plantuml, generated-diagrams/diagram-rpifc_seq_update_ui, png]
+-----
+@startuml
+loop every 3 sec
+  Frontend -> Backend: GET /debugging/logs
+
+  Backend -> Backend: validateAuth(user)
+  alt auth_success
+    Backend -> Backend: getLog()
+
+    Frontend <-- Backend: HTTP 200 OK
+
+    Frontend -> Frontend: updateLog(log)
+  else auth_fail
+    Frontend <-- Backend: HTTP 401 Unauthorized
+    break
+      Frontend -> Frontend: showAuthScreen()
+    end
+  end
+end
+@enduml
+-----
+
+== Deployment diagram
+[plantuml, generated-diagrams/diagram-rpifc_deployment, png]
+-----
+node "<<device>> RPiFC client" as device_client #lightyellow {
+  node "<<execution environment>> Webbrowser" as device_client_webbrowser #aliceblue
+}
+
+node "<<device>> RPi" as device_server #lightyellow {
+  node "<<execution environment>> Docker" #aliceblue {
+    node "<<container>> RPiFC Appserver" as device_server_container_rpifc_app #lightgreen {
+      artifact "RPiFC app" #floralwhite
+    }
+
+    node "<<container>> RPiFC Webserver" as device_server_container_rpifc_web #lightgreen {
+      artifact "RPiFC webapp" #floralwhite
+    }
+
+    node "<<container>> Reverse Proxy" as device_server_container_revproxy #lightgreen
+
+    device_server_container_revproxy -> device_server_container_rpifc_web: HTTP
+    device_server_container_revproxy -> device_server_container_rpifc_app: HTTP
+  }
+}
+
+device_client_webbrowser -> device_server_container_revproxy: HTTPS
+@enduml
+-----
+
+== Class diagram
+[plantuml, generated-diagrams/diagram-rpifc_class, png]
+----
+@startuml
+skinparam dpi 150
+scale 340 height
+
+note "Incomplete" as N1
+
+package "model" #DDDDDD {
+  class FanCurve {
+    + name
+    + curveSeries
+  }
+}
+
+package "logic" #DDDDDD {
+  class PWM {
+    + gpio_pin
+    + invert_signal
+    + min_dc
+    + max_dc
+    + pwm_init(gpio_pin, min_dc, max_dc)
+    + pwm_destroy()
+    + set_dc(dc)
+  }
+
+  class App {
+    + addFanCurve(name, series)
+    + rmvFanCurve(name, series)
+    + updateFanCurve(name, series)
+    + disableFan()
+    + setMinDC(min)
+    + setMaxDC(max)
+    + setInvertPWMSignal()
+  }
+
+  App *-- FanCurve
+  App *-- PWM
+}
+@enduml
+----
+
+
+== Business Model
+=== 1. Customer Segments
+* IOT tinkerers
+* Pi 4 Desktop users (w/o suitable case)
+
+=== 2. Value Propositions
+* Improved performance (less throttling)
+* Ensuring HW longevity
+* Less noise (instead of running fan @ full speed)
+* DIY experience (instead of buying case w/ fan)
+
+=== 3. Channels
+* GitHub
+* Docker Hub
+
+=== 4. Customer Relationships
+* Feedback / Feature requests via GitHub (Issues)
+
+=== 5. Revenue Streams
+* GitHub Sponsors
+* Patreon
+
+=== 6. Key Activities
+* Development
+* Testing & Validating w/ real hw
+
+=== 7. Key Resources
+* SW developers
+* HW (soldered circuit board, Pi, Fan)
+
+=== 8. Key Partners
+* GitHub
+* Docker Hub
+
+=== 9. Cost Structure
+* SW development expenses
+* HW expenses
