@@ -48,17 +48,25 @@ image:rpifc-mockup.png["UI mockup", 75%, 75%]
 -----
 @startuml
 left to right direction
-actor "Authenticated User" as g
+actor "User" as g
 package RPiFC {
-  usecase "Retrieve system status" as UC1
-  usecase "Retrieve system infos" as UC2
+  usecase "Retrieve system infos" as UC1
+  usecase "Retrieve system status" as UC2
   usecase "Retrieve debugging data" as UC3
-  usecase "Change configuration" as UC4
+  usecase "Retrieve configuration" as UC4
+  usecase "Change configuration" as UC5
+  usecase "Check authentication" as UC6
 }
+UC1 .> UC6 : include
 g --> UC1
+UC2 .> UC6 : include
 g --> UC2
+UC3 .> UC6 : include
 g --> UC3
+UC4 .> UC6 : include
 g --> UC4
+UC5 .> UC6 : include
+g --> UC5
 @enduml
 -----
 
@@ -67,19 +75,19 @@ g --> UC4
 [plantuml, generated-diagrams/diagram-rpifc_seq_add_fan_curve, png]
 -----
 @startuml
-Frontend -> Backend: HTTP: POST /fanCurves
+Frontend -> Backend: submitNewFanCurve(fanCurveName, fanCurveSeries)
 
 Backend -> Backend: validateAuth(user)
 alt auth_success
   Backend -> Backend: log(EVENT_ADD_FAN_CURVE, fanCurveName, fanCurveSeries)
   Backend -> Backend: addFanCurve(fanCurveName, fanCurveSeries)
 
-  Frontend <-- Backend: HTTP 201 Created
+  Frontend <-- Backend: result: addedFanCurve
 
   Frontend -> Frontend: updateFanCurveChart(fanSeries)
   Frontend -> Frontend: showSuccessMsg(msg)
 else auth_fail
-  Frontend <-- Backend: HTTP 401 Unauthorized
+  Frontend <-- Backend: result: unauthorizedError
   Frontend -> Frontend: showAuthScreen()
 end
 @enduml
@@ -90,7 +98,7 @@ end
 -----
 @startuml
 scale 530 height
-Frontend -> Backend: HTTP: PUT /fanCurves/<name>
+Frontend -> Backend: submitUpdatedFanCurve(fanCurveName, fanCurveSeries)
 
 Backend -> Backend: validateAuth(user)
 alt auth_success
@@ -99,16 +107,16 @@ alt auth_success
   alt found
     Backend -> Backend: foundFanCurve.setCurveSeries(fanCurveName, fanCurveSeries)
 
-    Frontend <-- Backend: HTTP 200 OK
+    Frontend <-- Backend: result: updatedFanCurve
 
     Frontend -> Frontend: updateFanCurveChart(fanSeries)
     Frontend -> Frontend: showSuccessMsg(msg)
   else not_found
-    Frontend <-- Backend: HTTP 404
+    Frontend <-- Backend: result: notFoundError
     Frontend -> Frontend: showFailureMsg(msg)
   end
 else auth_fail
-  Frontend <-- Backend: HTTP 401 Unauthorized
+  Frontend <-- Backend: result: unauthorizedError
   Frontend -> Frontend: showAuthScreen()
 end
 @enduml
@@ -119,17 +127,17 @@ end
 -----
 @startuml
 loop every 3 sec
-  Frontend -> Backend: GET /debugging/logs
+  Frontend -> Backend: fetchDebuggingLogs()
 
   Backend -> Backend: validateAuth(user)
   alt auth_success
     Backend -> Backend: getLog()
 
-    Frontend <-- Backend: HTTP 200 OK
+    Frontend <-- Backend: result: log
 
     Frontend -> Frontend: updateLog(log)
   else auth_fail
-    Frontend <-- Backend: HTTP 401 Unauthorized
+    Frontend <-- Backend: result: unauthorizedError
     break
       Frontend -> Frontend: showAuthScreen()
     end
@@ -142,11 +150,11 @@ end
 [plantuml, generated-diagrams/diagram-rpifc_deployment, png]
 -----
 node "<<device>> RPiFC client" as device_client #lightyellow {
-  node "<<execution environment>> Webbrowser" as device_client_webbrowser #aliceblue
+  node "<<execution environment>> web browser" as device_client_webbrowser #aliceblue
 }
 
 node "<<device>> RPi" as device_server #lightyellow {
-  node "<<execution environment>> Docker" #aliceblue {
+  node "<<execution environment>> Container runtime" #aliceblue {
     node "<<container>> RPiFC Appserver" as device_server_container_rpifc_app #lightgreen {
       artifact "RPiFC app" #floralwhite
     }
